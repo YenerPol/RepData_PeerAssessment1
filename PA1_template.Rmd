@@ -4,22 +4,115 @@ output:
   html_document:
     keep_md: true
 ---
-
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen=999)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(xtable)
+```
 
 ## Loading and preprocessing the data
 
-
+```{r}
+data <- read_csv("activity.csv", col_types = cols(steps = col_integer(), 
+                                                date = col_date(), 
+                                                interval = col_integer() ))
+data_noNA <- filter(data,  !is.na(data$steps)) ## remove NA values
+str(data_noNA)
+```
 
 ## What is mean total number of steps taken per day?
 
+```{r}
+steps_day <- data_noNA %>% group_by(date) %>% summarize(total = sum(steps))
+head(steps_day,3)
+g_his <- ggplot(steps_day, aes(total))+geom_histogram(binwidth = 2000)+
+                labs(title = "Histogram. Steps per day.")
+g_day <-  ggplot(steps_day, aes(x = date, y = total))+geom_point()+geom_path()+
+                labs(title = "Total steps per day")
+grid.arrange(g_his, g_day, ncol=2)
+summ1 <- summary(steps_day$total)
+```
+Mean of total number of steps:
 
+`r round(summ1[4],1)`
 
 ## What is the average daily activity pattern?
 
+```{r}
+## Make a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, 
+## averaged across all days (y-axis)
+steps_interval <- data_noNA %>% group_by(interval) %>% summarize(Steps = round(mean(steps),2))
+## round(aggregate(steps~interval,data_noNA,mean),2)  ##Other way to do the same
+g_day_pattern <- ggplot(steps_interval, aes(x=interval,y=Steps)) + geom_path() + 
+        labs(title = "Mean daily steps each 5 min")
+g_day_pattern
+## Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+steps_interval[which.max(steps_interval$Steps),]
+```
 
 
 ## Imputing missing values
 
+```{r}
+## Calculate and report the total number of missing values in the dataset
+sum(is.na(data$steps))
+## I wil use mean to fill missing values. col steps2 contains the mean values
+newData <- data %>% group_by(date) %>% mutate(steps2 = steps_interval$Steps)
+for(i in 1:length(newData$steps)){
+        if(is.na(newData$steps[i])){
+                newData$steps[i] <- newData$steps2[i]
+        }
+}
+newData <- select(newData, c(1,2,3))
+## New data set
+head(newData,2)
+## new plots
+steps_interval_2 <- newData %>% group_by(interval) %>% summarize(Steps = round(mean(steps),2))
+steps_day_2 <- newData %>% group_by(date) %>% summarize(total = sum(steps))
+g_his_2 <- ggplot(steps_day_2, aes(total))+geom_histogram(binwidth = 2000)+
+                labs(title = "Imputing missing values.")
+g_day_2 <-  ggplot(steps_day_2, aes(x = date, y = total))+geom_point()+geom_path()+
+                labs(title = "Imputing missing values.")
+grid.arrange(g_his,g_day,g_his_2, g_day_2, ncol=2)
+summ2 <- summary(steps_day_2$total)
+```
 
+Doing a quick summary on the data with (summ2) and without Na values (summ2), we see no changes on 
+mean value as spected because of the strategy for imputing Na values.
+
+```{r, results="asis"}
+tb <- xtable(data.frame(rbind(summ1,summ2)))
+print(tb, type ="html")
+```
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+For this part the weekdays() function may be of some help here. Use the dataset with the filled-in missing 
+values for this part.
+
+Create a new factor variable in the dataset with two levels – “weekday” and “weekend” indicating whether a given 
+date is a weekday or weekend day.
+
+```{r}
+newData <- newData %>% mutate(weekday = weekdays(date))
+for(i in 1:nrow(newData)){
+         newData$weekday[i] <- if(weekdays(newData$date[i]) == "Saturday" | weekdays(newData$date[i]) == "Sunday"){
+               "weekend"
+        }else{ "weekday" }
+}
+weeklist <- split(newData, newData$weekday)
+```
+
+Make a panel plot containing a time series plot of the 5-minute interval (x-axis) and the average number of steps
+taken, averaged across all weekday days or weekend days (y-axis). I think the easiest way to look for any pattern 
+change is to superimpose both data patterns:
+
+```{r}
+day_interval <- newData %>% group_by(interval,weekday) %>% summarize(Steps = round(mean(steps),2))
+g_week <- ggplot(day_interval, aes(x=interval,y=Steps)) 
+g_week + facet_grid(weekday~.)+ geom_path(aes(color=weekday))+ labs(title = "Time series plot. 5-min interval")
+```
